@@ -416,6 +416,7 @@ impl PlaceOrder {
             sub_account_id,
             take_profit_order_params: None, // TODO: add take profit order params
             stop_loss_order_params: None,   // TODO: add stop loss order params
+            max_margin_ratio: None,
         };
 
         // TODO: support delegate signed message type here
