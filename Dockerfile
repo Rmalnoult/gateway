@@ -1,4 +1,4 @@
-FROM rust:1.84.1 AS builder
+FROM rust:1.85 AS builder
 
 RUN apt-get update && apt-get install -y libgcc1 jq
 WORKDIR /build
