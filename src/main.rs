@@ -14,7 +14,7 @@ use drift_rs::{
 };
 use log::{debug, info, warn};
 use serde_json::json;
-use types::{SetLeverageRequest, SwapRequest};
+use types::{SetLeverageRequest, SwapRequest, TitanSwapRequest};
 
 use crate::{
     controller::{create_wallet, AppState, ControllerError},
@@ -245,6 +245,21 @@ async fn swap(
     }
 }
 
+#[post("/titan-swap")]
+async fn titan_swap(
+    controller: web::Data<AppState>,
+    body: web::Bytes,
+    ctx: web::Query<Context>,
+) -> impl Responder {
+    match serde_json::from_slice::<'_, TitanSwapRequest>(body.as_ref()) {
+        Ok(req) => {
+            debug!(target: LOG_TARGET, "request: {req:?}");
+            handle_result(controller.titan_swap(ctx.0, req).await)
+        }
+        Err(err) => handle_deser_error(err),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let config: GatewayConfig = argh::from_env();
@@ -406,7 +421,8 @@ async fn main() -> std::io::Result<()> {
                     .service(get_leverage)
                     .service(set_leverage)
                     .service(get_collateral)
-                    .service(swap),
+                    .service(swap)
+                    .service(titan_swap),
             )
     })
     .keep_alive(Duration::from_secs(config.keep_alive_timeout as u64))
@@ -610,14 +626,14 @@ mod tests {
             ),
         );
 
-        let rpc_endpoint = std::env::var("TEST_MAINNET_RPC_ENDPOINT")
-            .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string());
+        let rpc_endpoint = std::env::var("TEST_RPC_ENDPOINT")
+            .unwrap_or_else(|_| "https://api.devnet.solana.com".to_string());
         let state = AppState::new(
             &rpc_endpoint,
             true,
             wallet,
             None,
-            vec![],
+            vec![0],
             false,
             vec![],
             "https://master.swift.drift.trade".to_string(),
@@ -665,7 +681,7 @@ mod tests {
             false,
             wallet,
             None,
-            vec![],
+            vec![0],
             false,
             vec![],
             "https://master.swift.drift.trade".to_string(),
@@ -708,7 +724,7 @@ mod tests {
             false,
             wallet,
             None,
-            vec![],
+            vec![0],
             false,
             vec![],
             "https://master.swift.drift.trade".to_string(),
