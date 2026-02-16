@@ -55,8 +55,17 @@ async fn accept_connection(
     wallet: Arc<Wallet>,
     program_data: &'static ProgramData,
 ) {
-    let addr = stream.peer_addr().expect("peer address");
-    let ws_stream = accept_async(stream).await.expect("Ws handshake");
+    let addr = stream
+        .peer_addr()
+        .map(|peer| peer.to_string())
+        .unwrap_or_else(|_| "<unknown-peer>".to_string());
+    let ws_stream = match accept_async(stream).await {
+        Ok(ws) => ws,
+        Err(err) => {
+            log::error!(target: LOG_TARGET, "Ws connection failed: {addr}, err={err}");
+            return;
+        }
+    };
     info!(target: LOG_TARGET, "accepted Ws connection: {}", addr);
 
     let (mut ws_out, mut ws_in) = ws_stream.split();
@@ -64,12 +73,13 @@ async fn accept_connection(
     let subscriptions = Arc::new(Mutex::new(HashMap::<u8, JoinHandle<()>>::default()));
 
     // writes messages to the connection
+    let addr_for_writer = addr.clone();
     tokio::spawn(async move {
         while let Some(msg) = message_rx.recv().await {
             if msg.is_close() {
                 let _ = ws_out.send(msg).await;
                 let _ = ws_out.close().await;
-                debug!(target: LOG_TARGET, "closing Ws connection (send half): {}", addr);
+                debug!(target: LOG_TARGET, "closing Ws connection (send half): {addr_for_writer}");
                 break;
             }
             ws_out.send(msg).await.expect("sent");
@@ -100,6 +110,7 @@ async fn accept_connection(
                                 continue;
                             }
                             info!(target: LOG_TARGET, "subscribing to events for: {}", request.sub_account_id);
+                            let addr_for_subscription = addr.clone();
                             let join_handle = tokio::spawn({
                                 let ws_client_ref = Arc::clone(&ws_client);
                                 let sub_account_address =
@@ -107,6 +118,7 @@ async fn accept_connection(
                                 let subscription_map = Arc::clone(&subscriptions);
                                 let sub_account_id = request.sub_account_id;
                                 let message_tx = message_tx.clone();
+                                let addr_for_subscription = addr_for_subscription.clone();
 
                                 async move {
                                     loop {
@@ -145,7 +157,7 @@ async fn accept_connection(
                                                 .await
                                                 .is_err()
                                             {
-                                                warn!(target: LOG_TARGET, "failed sending Ws message: {}", addr);
+                                                warn!(target: LOG_TARGET, "failed sending Ws message: {}", addr_for_subscription);
                                                 break;
                                             }
                                         }
