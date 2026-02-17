@@ -22,7 +22,7 @@ use tokio::{
 use tokio_tungstenite::{
     accept_hdr_async,
     tungstenite::{
-        handshake::server::{ErrorResponse, Request, Response},
+        handshake::server::{write_response, ErrorResponse, Request, Response},
         http::{HeaderValue, Method as HttpMethod, Response as HttpResponse, StatusCode},
         Message,
     },
@@ -94,15 +94,16 @@ fn handle_ws_handshake(
     Ok(response)
 }
 
-fn build_plain_http_response(status: StatusCode, reason: &str) -> String {
-    let body = reason.as_bytes();
-    format!(
-        "HTTP/1.1 {code} {canonical}\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: {len}\r\nconnection: close\r\n\r\n{body}",
-        code = status.as_u16(),
-        canonical = status.canonical_reason().unwrap_or("Error"),
-        len = body.len(),
-        body = reason,
-    )
+fn serialize_http_error_response(status: StatusCode, reason: &str) -> Option<Vec<u8>> {
+    let response = build_ws_handshake_error(status, reason.to_string());
+    let mut output = Vec::new();
+    if write_response(&mut output, &response).is_err() {
+        return None;
+    }
+    if let Some(body) = response.body() {
+        output.extend_from_slice(body.as_bytes());
+    }
+    Some(output)
 }
 
 async fn maybe_write_http_handshake_error(stream: &mut TcpStream) -> bool {
@@ -174,8 +175,9 @@ async fn maybe_write_http_handshake_error(stream: &mut TcpStream) -> bool {
     };
 
     if let Some((status, reason)) = status_reason {
-        let response = build_plain_http_response(status, reason);
-        let _ = stream.write_all(response.as_bytes()).await;
+        if let Some(response) = serialize_http_error_response(status, reason) {
+            let _ = stream.write_all(&response).await;
+        }
         let _ = stream.shutdown().await;
         return true;
     }
